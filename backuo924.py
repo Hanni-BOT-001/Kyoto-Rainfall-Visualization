@@ -3,7 +3,21 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 """Matplotlib ripple animation driven by rainfall CSV.
 
-This script looks for `kyotov03 copy.csv` in the same directory and uses
+This script looks for `kyotov03 copy.csv` i        col = color_from_rain(rain)
+        # use the computed max_r so ripples never exceed ~1/220 canvas area
+        r = Ripple(x, y, col, r0=0.02, max_r=max_r)
+        # ensure RGBA tuple; use matplotlib helper
+        from matplotlib.colors import to_rgba
+        rgba = to_rgba(r.color, r.alpha)
+        # create two concentric ellipses with random shapes and very thin lines
+        width1, height1 = r.r * 2, r.r * 2 * r.aspect_ratio
+        width2, height2 = r.r * 2 * 0.7, r.r * 2 * 0.7 * r.aspect_ratio
+        c1 = Ellipse((r.x, r.y), width1, height1, angle=r.angle, fill=False, edgecolor=rgba, linewidth=0.625, zorder=2)
+        c2 = Ellipse((r.x, r.y), width2, height2, angle=r.angle, fill=False, edgecolor=rgba, linewidth=0.625, zorder=2)
+        ax.add_patch(c1)
+        ax.add_patch(c2)
+        ripples.append(r)
+        artists.append([c1, c2]) directory and uses
 columns containing 'rain', 'wind', 'humidity', 'temperature' (case-insensitive).
 If the CSV is missing or columns are not found, the script falls back to
 deterministic synthetic data so the animation still runs.
@@ -18,7 +32,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from matplotlib.patches import Circle
+from matplotlib.patches import Circle, Ellipse
 import argparse
 
 
@@ -101,11 +115,11 @@ def load_data(path):
 
 
 def color_from_rain(r):
-    # map rainfall 0..30mm to a brighter perceptual scale
+    # map rainfall 0..30mm to muted Morandi color palette with slightly increased saturation
     v = max(0.0, min(1.0, r / 30.0))
-    low = np.array([0.35, 0.75, 0.95])   # pale sky blue
-    mid = np.array([0.0, 0.6, 0.95])     # strong cyan-blue
-    high = np.array([1.0, 0.65, 0.0])    # warm orange for heavy rain
+    low = np.array([0.75, 0.85, 0.78])   # soft sage green with more green
+    mid = np.array([0.7, 0.78, 0.88])    # muted blue-gray with more blue
+    high = np.array([0.88, 0.78, 0.68])  # warm beige with more warmth
     if v < 0.5:
         t = v / 0.5
         col = low * (1 - t) + mid * t
@@ -124,11 +138,14 @@ class Ripple:
         self.max_r = float(max_r)
         self.alpha = 0.95
         self.color = color
+        # random ellipse parameters
+        self.aspect_ratio = np.random.uniform(0.6, 1.0)  # ratio of height to width (1.0 = circle)
+        self.angle = np.random.uniform(0, 360)  # rotation angle in degrees
 
     def step(self):
-        # grow and fade slowly so ripples remain visible
-        self.r += 0.008
-        self.alpha -= 0.006
+        # grow and fade slowly so ripples remain visible (3 times slower)
+        self.r += 0.0027
+        self.alpha -= 0.002
         return (self.alpha > 0.02) and (self.r < self.max_r)
 
 
@@ -166,40 +183,23 @@ def main():
     info_text = ax.text(0.98, 0.02, '', ha='right', va='bottom', color='white', fontsize=10, transform=ax.transAxes,
                         bbox=dict(facecolor=(0,0,0,0.45), edgecolor='none', boxstyle='round'), zorder=4)
 
-    # limit ripple area to ~1/20 of canvas area
-    # circle area = pi * r^2 ; solve for r where area = (1/20) * canvas_area (canvas area = 1 for axes coords)
-    max_area_frac = 1.0 / 20.0
+    # limit ripple area to ~1/220 of canvas area (about 10 times smaller than original)
+    # circle area = pi * r^2 ; solve for r where area = (1/220) * canvas_area (canvas area = 1 for axes coords)
+    max_area_frac = 1.0 / 220.0
     max_r = float(np.sqrt(max_area_frac / math.pi))  # in axis fraction units
 
-    # create an evenly spaced grid of spawn positions across the axes
+    # use random positioning instead of grid-based positioning
     MARGIN = 0.06
-    span = 1.0 - 2 * MARGIN
-    # ensure grid cells are at least 2*max_r apart to avoid excessive overlap
-    min_spacing = 2.0 * max_r
-    # compute grid cols/rows to fit spacing (cap to reasonable defaults)
-    max_cols = max(1, int(np.floor(span / min_spacing)) + 1)
-    max_rows = max(1, int(np.floor(span / min_spacing)) + 1)
-    GRID_COLS = min(8, max_cols)
-    GRID_ROWS = min(6, max_rows)
-    xs = np.linspace(MARGIN, 1 - MARGIN, GRID_COLS)
-    ys = np.linspace(MARGIN, 1 - MARGIN, GRID_ROWS)
-    grid_positions = [(x, y) for y in ys for x in xs]
-    # counter for round-robin selection of grid cells
-    spawn_counter = {'c': 0}
 
     def spawn(idx):
-        # choose next grid cell in round-robin, add small jitter and wind nudging
+        # use completely random positioning across the canvas
         rain = float(data['rain'][idx % n])
         wind = float(data['wind_dir'][idx % n])
         ang = math.radians(wind)
 
-        pos = grid_positions[spawn_counter['c'] % len(grid_positions)]
-        spawn_counter['c'] += 1
-
-        # jitter so ripples don't look mechanically aligned
-        jitter = 0.03
-        x = pos[0] + (np.random.rand() - 0.5) * jitter
-        y = pos[1] + (np.random.rand() - 0.5) * jitter
+        # generate random position within margins
+        x = MARGIN + np.random.rand() * (1.0 - 2 * MARGIN)
+        y = MARGIN + np.random.rand() * (1.0 - 2 * MARGIN)
 
         # gentle wind nudge so ripples feel like they're affected by wind
         offx = 0.02 * math.cos(ang)
@@ -212,15 +212,20 @@ def main():
         y = float(np.clip(y, 0.02, 0.98))
 
         col = color_from_rain(rain)
-        # use the computed max_r so ripples never exceed ~1/20 canvas area
+        # use the computed max_r so ripples never exceed ~1/220 canvas area
         r = Ripple(x, y, col, r0=0.02, max_r=max_r)
         # ensure RGBA tuple; use matplotlib helper
         from matplotlib.colors import to_rgba
         rgba = to_rgba(r.color, r.alpha)
-        c = Circle((r.x, r.y), r.r, fill=False, edgecolor=rgba, linewidth=2.5, zorder=2)
-        ax.add_patch(c)
+        # create two concentric ellipses with random shapes and very thin lines
+        width1, height1 = r.r * 2, r.r * 2 * r.aspect_ratio
+        width2, height2 = r.r * 2 * 0.7, r.r * 2 * 0.7 * r.aspect_ratio
+        c1 = Ellipse((r.x, r.y), width1, height1, angle=r.angle, fill=False, edgecolor=rgba, linewidth=0.625, zorder=2)
+        c2 = Ellipse((r.x, r.y), width2, height2, angle=r.angle, fill=False, edgecolor=rgba, linewidth=0.625, zorder=2)
+        ax.add_patch(c1)
+        ax.add_patch(c2)
         ripples.append(r)
-        artists.append(c)
+        artists.append([c1, c2])
 
     frame_idx = {'i': 0}
 
@@ -233,26 +238,53 @@ def main():
 
         # step ripples
         to_remove = []
-        for rp, art in zip(ripples[:], artists[:]):
+        for rp, art_item in zip(ripples[:], artists[:]):
             alive = rp.step()
-            art.set_radius(rp.r)
             from matplotlib.colors import to_rgba
-            art.set_edgecolor(to_rgba(rp.color, max(0.0, rp.alpha)))
+            rgba = to_rgba(rp.color, max(0.0, rp.alpha))
+            # check if art_item is a list (pair of ellipses) or single ellipse
+            if isinstance(art_item, list):
+                # update both concentric ellipses
+                width1, height1 = rp.r * 2, rp.r * 2 * rp.aspect_ratio
+                width2, height2 = rp.r * 2 * 0.7, rp.r * 2 * 0.7 * rp.aspect_ratio
+                art_item[0].set_width(width1)
+                art_item[0].set_height(height1)
+                art_item[0].set_edgecolor(rgba)
+                art_item[1].set_width(width2)
+                art_item[1].set_height(height2)
+                art_item[1].set_edgecolor(rgba)
+            else:
+                # handle legacy single ellipse (shouldn't happen with new code)
+                width, height = rp.r * 2, rp.r * 2 * rp.aspect_ratio
+                art_item.set_width(width)
+                art_item.set_height(height)
+                art_item.set_edgecolor(rgba)
             if not alive:
-                to_remove.append((rp, art))
+                to_remove.append((rp, art_item))
 
-        for rp, art in to_remove:
+        for rp, art_item in to_remove:
             try:
                 ripples.remove(rp)
-                artists.remove(art)
-                art.remove()
+                artists.remove(art_item)
+                if isinstance(art_item, list):
+                    art_item[0].remove()
+                    art_item[1].remove()
+                else:
+                    art_item.remove()
             except ValueError:
                 pass
 
         # update overlay
         idx = frame_idx['i'] % n
         info_text.set_text(f'Kyoto: 35.0116, 135.7681\nRain: {data["rain"][idx]:.2f} mm\nRH: {data["rh"][idx]:.1f}%\nTemp: {data["temp"][idx]:.1f} °C')
-        return artists + [info_text]
+        # flatten artist pairs for return, handling both single circles and pairs
+        all_artists = []
+        for item in artists:
+            if isinstance(item, list):
+                all_artists.extend(item)
+            else:
+                all_artists.append(item)
+        return all_artists + [info_text]
 
     anim = FuncAnimation(fig, update, frames=2000, interval=50, blit=False)
 
