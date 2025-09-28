@@ -9,15 +9,18 @@ This script looks for `kyotov03 copy.csv` i        col = color_from_rain(rain)
         # ensure RGBA tuple; use matplotlib helper
         from matplotlib.colors import to_rgba
         rgba = to_rgba(r.color, r.alpha)
-        # create two concentric ellipses with random shapes and very thin lines
-        width1, height1 = r.r * 2, r.r * 2 * r.aspect_ratio
-        width2, height2 = r.r * 2 * 0.7, r.r * 2 * 0.7 * r.aspect_ratio
-        c1 = Ellipse((r.x, r.y), width1, height1, angle=r.angle, fill=False, edgecolor=rgba, linewidth=0.625, zorder=2)
-        c2 = Ellipse((r.x, r.y), width2, height2, angle=r.angle, fill=False, edgecolor=rgba, linewidth=0.625, zorder=2)
+        # create three concentric circles: blue halo + two main ripples
+        # bright blue halo (outermost)
+        halo_color = (0.3, 0.7, 1.0, r.alpha * 0.6)  # bright blue with reduced alpha
+        c_halo = Circle((r.x, r.y), r.r * 1.3, fill=False, edgecolor=halo_color, linewidth=1.0, zorder=2)
+        # main ripples with original colors
+        c1 = Circle((r.x, r.y), r.r, fill=False, edgecolor=rgba, linewidth=0.625, zorder=2)
+        c2 = Circle((r.x, r.y), r.r * 0.7, fill=False, edgecolor=rgba, linewidth=0.625, zorder=2)
+        ax.add_patch(c_halo)
         ax.add_patch(c1)
         ax.add_patch(c2)
         ripples.append(r)
-        artists.append([c1, c2]) directory and uses
+        artists.append([c_halo, c1, c2]) directory and uses
 columns containing 'rain', 'wind', 'humidity', 'temperature' (case-insensitive).
 If the CSV is missing or columns are not found, the script falls back to
 deterministic synthetic data so the animation still runs.
@@ -32,7 +35,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from matplotlib.patches import Circle, Ellipse
+from matplotlib.patches import Circle
 import argparse
 
 
@@ -115,11 +118,11 @@ def load_data(path):
 
 
 def color_from_rain(r):
-    # map rainfall 0..30mm to muted Morandi color palette with slightly increased saturation
+    # map rainfall 0..30mm to brighter Morandi color palette for better visibility against dark clouds
     v = max(0.0, min(1.0, r / 30.0))
-    low = np.array([0.75, 0.85, 0.78])   # soft sage green with more green
-    mid = np.array([0.7, 0.78, 0.88])    # muted blue-gray with more blue
-    high = np.array([0.88, 0.78, 0.68])  # warm beige with more warmth
+    low = np.array([0.85, 0.95, 0.88])   # brighter sage green
+    mid = np.array([0.8, 0.88, 0.98])    # brighter blue-gray
+    high = np.array([0.98, 0.88, 0.78])  # brighter warm beige
     if v < 0.5:
         t = v / 0.5
         col = low * (1 - t) + mid * t
@@ -127,6 +130,35 @@ def color_from_rain(r):
         t = (v - 0.5) / 0.5
         col = mid * (1 - t) + high * t
     return tuple(col.tolist())
+
+
+class Cloud:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.width = np.random.uniform(0.15, 0.3)
+        self.height = np.random.uniform(0.08, 0.2)
+        self.alpha = 0.0
+        self.target_alpha = np.random.uniform(0.4, 0.6)
+        self.fade_in = True
+        self.lifetime = np.random.randint(300, 500)
+        self.age = 0
+
+    def step(self):
+        self.age += 1
+        
+        # Fade in phase
+        if self.fade_in:
+            self.alpha += 0.005
+            if self.alpha >= self.target_alpha:
+                self.alpha = self.target_alpha
+                self.fade_in = False
+        
+        # Fade out phase (start fading when 70% through lifetime)
+        elif self.age > self.lifetime * 0.7:
+            self.alpha -= 0.003
+        
+        return self.alpha > 0.01 and self.age < self.lifetime
 
 
 class Ripple:
@@ -138,9 +170,6 @@ class Ripple:
         self.max_r = float(max_r)
         self.alpha = 0.95
         self.color = color
-        # random ellipse parameters
-        self.aspect_ratio = np.random.uniform(0.6, 1.0)  # ratio of height to width (1.0 = circle)
-        self.angle = np.random.uniform(0, 360)  # rotation angle in degrees
 
     def step(self):
         # grow and fade slowly so ripples remain visible (3 times slower)
@@ -179,6 +208,8 @@ def main():
 
     ripples = []
     artists = []
+    clouds = []
+    cloud_artists = []
 
     info_text = ax.text(0.98, 0.02, '', ha='right', va='bottom', color='white', fontsize=10, transform=ax.transAxes,
                         bbox=dict(facecolor=(0,0,0,0.45), edgecolor='none', boxstyle='round'), zorder=4)
@@ -217,24 +248,88 @@ def main():
         # ensure RGBA tuple; use matplotlib helper
         from matplotlib.colors import to_rgba
         rgba = to_rgba(r.color, r.alpha)
-        # create two concentric ellipses with random shapes and very thin lines
-        width1, height1 = r.r * 2, r.r * 2 * r.aspect_ratio
-        width2, height2 = r.r * 2 * 0.7, r.r * 2 * 0.7 * r.aspect_ratio
-        c1 = Ellipse((r.x, r.y), width1, height1, angle=r.angle, fill=False, edgecolor=rgba, linewidth=0.625, zorder=2)
-        c2 = Ellipse((r.x, r.y), width2, height2, angle=r.angle, fill=False, edgecolor=rgba, linewidth=0.625, zorder=2)
+        # create three concentric circles: blue halo + two main ripples
+        # bright blue halo (outermost)
+        halo_color = (0.3, 0.7, 1.0, r.alpha * 0.6)  # bright blue with reduced alpha
+        c_halo = Circle((r.x, r.y), r.r * 1.3, fill=False, edgecolor=halo_color, linewidth=1.0, zorder=2)
+        # main ripples with original colors
+        c1 = Circle((r.x, r.y), r.r, fill=False, edgecolor=rgba, linewidth=0.625, zorder=2)
+        c2 = Circle((r.x, r.y), r.r * 0.7, fill=False, edgecolor=rgba, linewidth=0.625, zorder=2)
+        ax.add_patch(c_halo)
         ax.add_patch(c1)
         ax.add_patch(c2)
         ripples.append(r)
-        artists.append([c1, c2])
+        artists.append([c_halo, c1, c2])
+
+    def spawn_cloud():
+        # spawn blocky clouds in random locations
+        x = np.random.uniform(0.05, 0.95)
+        y = np.random.uniform(0.05, 0.95)
+        cloud = Cloud(x, y)
+        
+        # create blocky cloud patch with blurred edges using multiple overlapping rectangles
+        from matplotlib.patches import Rectangle
+        cloud_patches = []
+        
+        # Main cloud body (darker center)
+        main_patch = Rectangle((cloud.x - cloud.width/2, cloud.y - cloud.height/2), 
+                              cloud.width, cloud.height,
+                              fill=True, facecolor='#1a1a1a', alpha=cloud.alpha, 
+                              edgecolor='none', zorder=1)
+        ax.add_patch(main_patch)
+        cloud_patches.append(main_patch)
+        
+        # Blur effect using multiple lighter, larger rectangles
+        for i in range(3):
+            blur_scale = 1.2 + i * 0.3  # Progressively larger
+            blur_alpha = cloud.alpha * (0.3 - i * 0.08)  # Progressively lighter
+            blur_patch = Rectangle((cloud.x - cloud.width * blur_scale/2, 
+                                  cloud.y - cloud.height * blur_scale/2), 
+                                  cloud.width * blur_scale, 
+                                  cloud.height * blur_scale,
+                                  fill=True, facecolor='#2a2a2a', alpha=blur_alpha, 
+                                  edgecolor='none', zorder=1)
+            ax.add_patch(blur_patch)
+            cloud_patches.append(blur_patch)
+        
+        clouds.append(cloud)
+        cloud_artists.append(cloud_patches)
 
     frame_idx = {'i': 0}
 
     def update(frame):
+        # spawn clouds occasionally
+        if frame % 80 == 0 and np.random.rand() < 0.7:  # 70% chance every 80 frames
+            spawn_cloud()
+        
         # spawn a few ripples
         if frame % 5 == 0:
             for _ in range(6):
                 spawn(frame_idx['i'])
                 frame_idx['i'] += 1
+
+        # step clouds
+        clouds_to_remove = []
+        for cloud, cloud_patches in zip(clouds[:], cloud_artists[:]):
+            alive = cloud.step()
+            # Update alpha for all patches in this cloud
+            for i, patch in enumerate(cloud_patches):
+                if i == 0:  # Main patch
+                    patch.set_alpha(cloud.alpha)
+                else:  # Blur patches
+                    blur_alpha = cloud.alpha * (0.3 - (i-1) * 0.08)
+                    patch.set_alpha(max(0, blur_alpha))
+            if not alive:
+                clouds_to_remove.append((cloud, cloud_patches))
+        
+        for cloud, cloud_patches in clouds_to_remove:
+            try:
+                clouds.remove(cloud)
+                cloud_artists.remove(cloud_patches)
+                for patch in cloud_patches:
+                    patch.remove()
+            except ValueError:
+                pass
 
         # step ripples
         to_remove = []
@@ -242,22 +337,26 @@ def main():
             alive = rp.step()
             from matplotlib.colors import to_rgba
             rgba = to_rgba(rp.color, max(0.0, rp.alpha))
-            # check if art_item is a list (pair of ellipses) or single ellipse
+            # check if art_item is a list (trio of circles with halo) or single circle
             if isinstance(art_item, list):
-                # update both concentric ellipses
-                width1, height1 = rp.r * 2, rp.r * 2 * rp.aspect_ratio
-                width2, height2 = rp.r * 2 * 0.7, rp.r * 2 * 0.7 * rp.aspect_ratio
-                art_item[0].set_width(width1)
-                art_item[0].set_height(height1)
-                art_item[0].set_edgecolor(rgba)
-                art_item[1].set_width(width2)
-                art_item[1].set_height(height2)
-                art_item[1].set_edgecolor(rgba)
+                if len(art_item) == 3:  # New format with halo
+                    # update blue halo (outermost)
+                    halo_color = (0.3, 0.7, 1.0, rp.alpha * 0.6)
+                    art_item[0].set_radius(rp.r * 1.3)
+                    art_item[0].set_edgecolor(halo_color)
+                    # update main concentric circles
+                    art_item[1].set_radius(rp.r)
+                    art_item[1].set_edgecolor(rgba)
+                    art_item[2].set_radius(rp.r * 0.7)
+                    art_item[2].set_edgecolor(rgba)
+                elif len(art_item) == 2:  # Legacy format with two circles
+                    art_item[0].set_radius(rp.r)
+                    art_item[0].set_edgecolor(rgba)
+                    art_item[1].set_radius(rp.r * 0.7)
+                    art_item[1].set_edgecolor(rgba)
             else:
-                # handle legacy single ellipse (shouldn't happen with new code)
-                width, height = rp.r * 2, rp.r * 2 * rp.aspect_ratio
-                art_item.set_width(width)
-                art_item.set_height(height)
+                # handle legacy single circle (shouldn't happen with new code)
+                art_item.set_radius(rp.r)
                 art_item.set_edgecolor(rgba)
             if not alive:
                 to_remove.append((rp, art_item))
@@ -267,8 +366,8 @@ def main():
                 ripples.remove(rp)
                 artists.remove(art_item)
                 if isinstance(art_item, list):
-                    art_item[0].remove()
-                    art_item[1].remove()
+                    for circle in art_item:
+                        circle.remove()
                 else:
                     art_item.remove()
             except ValueError:
@@ -284,7 +383,13 @@ def main():
                 all_artists.extend(item)
             else:
                 all_artists.append(item)
-        return all_artists + [info_text]
+        
+        # flatten cloud artists (each cloud has multiple patches)
+        all_cloud_artists = []
+        for cloud_patches in cloud_artists:
+            all_cloud_artists.extend(cloud_patches)
+        
+        return all_artists + all_cloud_artists + [info_text]
 
     anim = FuncAnimation(fig, update, frames=2000, interval=50, blit=False)
 
