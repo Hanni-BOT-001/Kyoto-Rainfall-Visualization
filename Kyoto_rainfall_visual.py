@@ -39,7 +39,7 @@ from matplotlib.patches import Circle
 import argparse
 
 
-CSV_CANDIDATE = os.path.join(os.path.dirname(__file__), 'kyotov03 copy.csv')
+CSV_CANDIDATE = os.path.join(os.path.dirname(__file__), 'kyotov9.24.csv')
 
 
 def load_data(path):
@@ -402,23 +402,8 @@ def main():
             print('Saved animation to', out_mp4)
         except Exception as e:
             print('MP4 save failed:', e)
-            print('Falling back to exporting frames using export_frames.py')
-            try:
-                # ensure script directory is on sys.path and import by module name
-                import sys
-                script_dir = os.path.dirname(__file__)
-                if script_dir not in sys.path:
-                    sys.path.insert(0, script_dir)
-                try:
-                    from export_frames import save_frames
-                    save_frames()
-                except Exception:
-                    # final fallback: execute the file directly
-                    import runpy
-                    runpy.run_path(os.path.join(script_dir, 'export_frames.py'), run_name='__main__')
-                print('Frames exported to frames/ directory')
-            except Exception as e2:
-                print('Fallback frame export failed:', e2)
+            print('Animation could not be saved. Make sure ffmpeg is installed for MP4 output.')
+            print('You can still run the script without --save to view the interactive animation.')
         return
 
     # interactive/show mode
